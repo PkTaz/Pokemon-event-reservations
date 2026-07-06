@@ -12,6 +12,7 @@ import {
   releaseSlotHold as releaseSlotHoldInStore,
 } from "@/lib/store";
 import type { BookingFormData, ClaimSlotHoldResult, CreateBookingResult } from "@/lib/types";
+import { getAdminPassword } from "@/lib/env";
 
 const BOOKING_SESSION_COOKIE = "booking_session";
 
@@ -82,12 +83,12 @@ export async function fetchBooking(bookingId: string) {
 }
 
 export async function loginAdmin(password: string): Promise<{ ok: boolean }> {
-  const expected = process.env.ADMIN_PASSWORD;
+  const expected = getAdminPassword();
   if (!expected) {
-    console.error("ADMIN_PASSWORD is not set");
+    console.error("ADMIN_PASSWORD is not set at runtime");
     return { ok: false };
   }
-  if (password !== expected) {
+  if (password.trim() !== expected) {
     return { ok: false };
   }
 
@@ -97,6 +98,7 @@ export async function loginAdmin(password: string): Promise<{ ok: boolean }> {
     sameSite: "lax",
     secure: process.env.NODE_ENV === "production",
     path: "/",
+    maxAge: 60 * 60 * 24 * 7,
   });
 
   return { ok: true };
