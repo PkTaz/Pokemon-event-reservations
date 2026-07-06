@@ -1,6 +1,7 @@
 import { AdminDashboard } from "@/components/AdminDashboard";
 import { AdminLoginForm } from "@/components/AdminLoginForm";
 import { AdminLogoutButton } from "@/components/AdminLogoutButton";
+import { AdminResetDataButton } from "@/components/AdminResetDataButton";
 import { AdminSecondDayToggle } from "@/components/AdminSecondDayToggle";
 import { Card, Container, PageHeader, BackLink } from "@/components/ui";
 import { fetchAdminBookings, fetchSecondDayStatus } from "@/lib/actions/admin";
@@ -46,6 +47,8 @@ export default async function AdminPage() {
         </div>
 
         <AdminSecondDayToggle initiallyOpen={secondDay?.open ?? false} />
+
+        <AdminResetDataButton />
 
         <Card className="overflow-hidden p-0">
           <AdminDashboard bookings={bookings ?? []} />

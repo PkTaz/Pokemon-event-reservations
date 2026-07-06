@@ -341,3 +341,12 @@ export function updateBookingStatus(
 
   return true;
 }
+
+/** Wipe all bookings, holds, and reset Day 2 — fresh slate for go-live. */
+export function resetAllEventData(): void {
+  const store = getStore();
+  store.bookings = [];
+  store.holds = [];
+  store.secondDayOpen = false;
+  syncSlotsWithCatalog(store);
+}

@@ -6,6 +6,7 @@ import {
   getAllBookings,
   getSlots,
   isSecondDayOpen,
+  resetAllEventData as resetAllEventDataInStore,
   setSecondDayOpen,
   updateBookingStatus,
 } from "@/lib/store";
@@ -62,6 +63,19 @@ export async function changeBookingStatus(
 
   const updated = updateBookingStatus(bookingId, status);
   return updated ? { ok: true } : { ok: false, error: "Booking not found" };
+}
+
+export async function resetAllEventData(): Promise<{
+  ok: boolean;
+  error?: string;
+}> {
+  const authed = await isAdminAuthenticated();
+  if (!authed) {
+    return { ok: false, error: "Unauthorized" };
+  }
+
+  resetAllEventDataInStore();
+  return { ok: true };
 }
 
 export async function logoutAdmin(): Promise<void> {
