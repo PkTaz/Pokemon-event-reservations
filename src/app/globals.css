@@ -1,26 +1,185 @@
 @import "tailwindcss";
 
 :root {
-  --background: #ffffff;
-  --foreground: #171717;
+  --poke-red: #ee1515;
+  --poke-red-dark: #cc0000;
+  --poke-blue: #3b4cca;
+  --poke-blue-dark: #2a3a9e;
+  --poke-yellow: #ffcb05;
+  --poke-yellow-dark: #e6b800;
+  --poke-cream: #fffef5;
+  --poke-navy: #1a1a2e;
+  --poke-panel: #f8f4e8;
+  --background: var(--poke-blue);
+  --foreground: var(--poke-navy);
 }
 
 @theme inline {
   --color-background: var(--background);
   --color-foreground: var(--foreground);
-  --font-sans: var(--font-geist-sans);
-  --font-mono: var(--font-geist-mono);
-}
-
-@media (prefers-color-scheme: dark) {
-  :root {
-    --background: #0a0a0a;
-    --foreground: #ededed;
-  }
+  --color-poke-red: var(--poke-red);
+  --color-poke-red-dark: var(--poke-red-dark);
+  --color-poke-blue: var(--poke-blue);
+  --color-poke-blue-dark: var(--poke-blue-dark);
+  --color-poke-yellow: var(--poke-yellow);
+  --color-poke-yellow-dark: var(--poke-yellow-dark);
+  --color-poke-cream: var(--poke-cream);
+  --color-poke-navy: var(--poke-navy);
+  --color-poke-panel: var(--poke-panel);
+  --font-sans: var(--font-nunito);
+  --font-display: var(--font-rubik);
 }
 
 body {
   background: var(--background);
   color: var(--foreground);
-  font-family: Arial, Helvetica, sans-serif;
+  min-height: 100vh;
+}
+
+/* Pokéball-style dot pattern overlay */
+.poke-bg {
+  background-color: var(--poke-blue);
+  background-image:
+    radial-gradient(circle at 20% 80%, rgba(255, 203, 5, 0.08) 0%, transparent 50%),
+    radial-gradient(circle at 80% 20%, rgba(238, 21, 21, 0.06) 0%, transparent 50%),
+    radial-gradient(circle, rgba(255, 255, 255, 0.04) 1px, transparent 1px);
+  background-size: 100% 100%, 100% 100%, 24px 24px;
+}
+
+.poke-panel {
+  background: var(--poke-panel);
+  border: 3px solid var(--poke-navy);
+  border-radius: 1rem;
+  box-shadow:
+    0 4px 0 var(--poke-navy),
+    inset 0 1px 0 rgba(255, 255, 255, 0.6);
+}
+
+.poke-panel-inset {
+  background: white;
+  border: 2px solid var(--poke-navy);
+  border-radius: 0.75rem;
+  box-shadow: inset 0 2px 4px rgba(0, 0, 0, 0.06);
+}
+
+.poke-btn {
+  background: var(--poke-yellow);
+  border: 3px solid var(--poke-navy);
+  border-radius: 0.75rem;
+  box-shadow: 0 4px 0 var(--poke-navy);
+  color: var(--poke-navy);
+  font-weight: 700;
+  transition: transform 0.1s, box-shadow 0.1s;
+}
+
+.poke-btn:hover:not(:disabled) {
+  background: #ffe033;
+  transform: translateY(-1px);
+  box-shadow: 0 5px 0 var(--poke-navy);
+}
+
+.poke-btn:active:not(:disabled) {
+  transform: translateY(2px);
+  box-shadow: 0 2px 0 var(--poke-navy);
+}
+
+.poke-btn:disabled {
+  opacity: 0.55;
+  cursor: not-allowed;
+}
+
+.poke-btn-secondary {
+  background: white;
+  border: 3px solid var(--poke-navy);
+  border-radius: 0.75rem;
+  box-shadow: 0 3px 0 var(--poke-navy);
+  color: var(--poke-navy);
+  font-weight: 600;
+  transition: transform 0.1s, box-shadow 0.1s;
+}
+
+.poke-btn-secondary:hover {
+  background: var(--poke-cream);
+  transform: translateY(-1px);
+  box-shadow: 0 4px 0 var(--poke-navy);
+}
+
+.poke-title {
+  font-family: var(--font-display), sans-serif;
+  text-shadow: 2px 2px 0 rgba(0, 0, 0, 0.15);
+}
+
+.poke-input {
+  background: white;
+  border: 2px solid var(--poke-navy);
+  border-radius: 0.5rem;
+  color: var(--poke-navy);
+}
+
+.poke-input:focus {
+  outline: none;
+  border-color: var(--poke-yellow-dark);
+  box-shadow: 0 0 0 3px rgba(255, 203, 5, 0.35);
+}
+
+@keyframes poke-bounce {
+  0%, 100% { transform: translateY(0); }
+  50% { transform: translateY(-4px); }
+}
+
+/* Classic party slot — red top, white bottom, black ring */
+.poke-party-slot {
+  border: 3px solid #1a1a2e;
+  border-radius: 9999px;
+  background: #1a1a2e;
+  padding: 2px;
+}
+
+.poke-party-slot-inner {
+  border-radius: 9999px;
+  overflow: hidden;
+  position: relative;
+}
+
+.poke-party-slot-inner::before {
+  content: "";
+  position: absolute;
+  inset: 0;
+  background: linear-gradient(to bottom, #ee1515 50%, #ffffff 50%);
+}
+
+.poke-party-slot-equator {
+  position: absolute;
+  left: 0;
+  right: 0;
+  top: 50%;
+  height: 2px;
+  transform: translateY(-50%);
+  background: rgba(26, 26, 46, 0.85);
+  z-index: 1;
+}
+
+.poke-bounce {
+  animation: poke-bounce 2s ease-in-out infinite;
+}
+
+/* LCD digit glow + blinking colon dots for countdown */
+.poke-countdown-digit {
+  color: #7dff6b;
+  text-shadow:
+    0 0 8px rgba(125, 255, 107, 0.55),
+    0 0 2px rgba(125, 255, 107, 0.9);
+}
+
+.poke-countdown-dot {
+  animation: poke-countdown-blink 1s step-end infinite;
+}
+
+.poke-countdown-dot-delay {
+  animation-delay: 0.5s;
+}
+
+@keyframes poke-countdown-blink {
+  0%, 100% { opacity: 1; }
+  50% { opacity: 0.15; }
 }
