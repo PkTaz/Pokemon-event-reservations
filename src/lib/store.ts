@@ -20,6 +20,7 @@ import {
   toPersistedState,
 } from "./persistence";
 import type {
+  AdminBookingInput,
   Booking,
   BookingFormData,
   BookingStatus,
@@ -405,5 +406,71 @@ export async function resetAllEventData(): Promise<void> {
     store.bookings = [];
     store.holds = [];
     store.secondDayOpen = false;
+  });
+}
+
+/** Staff-only: add a booking without going through the public hold flow. */
+export async function createAdminBooking(
+  input: AdminBookingInput,
+): Promise<CreateBookingResult> {
+  const artist = getArtistById(input.artistId);
+  if (!artist) {
+    return { success: false, error: "Artist not found." };
+  }
+
+  if (!isValidPlacement(input.placement)) {
+    return { success: false, error: "Invalid placement." };
+  }
+
+  if (!isValidColorPreference(input.colorPreference)) {
+    return { success: false, error: "Invalid color preference." };
+  }
+
+  const name = input.name.trim();
+  const phone = input.phone.trim();
+  const email = input.email.trim();
+
+  if (!name || !phone || !email) {
+    return { success: false, error: "Name, phone, and email are required." };
+  }
+
+  return withStore((store) => {
+    const slot = getSlotById(input.slotId, store.slots);
+
+    if (!slot || slot.artistId !== input.artistId) {
+      return { success: false, error: "Time slot not found for this artist." };
+    }
+
+    if (slot.status === "booked") {
+      return {
+        success: false,
+        error: "This slot is already booked. Pick another time.",
+      };
+    }
+
+    const booking: Booking = {
+      id: generateId(),
+      artistId: input.artistId,
+      slotId: input.slotId,
+      name,
+      phone,
+      email,
+      placement: input.placement,
+      colorPreference: input.colorPreference,
+      status: "Confirmed",
+      acknowledgements: {
+        confirmPackPull: true,
+        confirmArtistApproval: true,
+        confirmAgeAndId: true,
+      },
+      aiSummary: "",
+      createdAt: new Date().toISOString(),
+    };
+
+    booking.aiSummary = generateBookingSummary(booking, artist, slot);
+    store.bookings.push(booking);
+    store.holds = store.holds.filter((hold) => hold.slotId !== input.slotId);
+
+    return { success: true, booking };
   });
 }

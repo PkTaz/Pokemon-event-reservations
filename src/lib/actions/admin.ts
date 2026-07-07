@@ -3,6 +3,7 @@
 import { cookies } from "next/headers";
 import { isAdminAuthenticated } from "@/lib/actions/booking";
 import {
+  createAdminBooking as createAdminBookingInStore,
   getAllBookings,
   getSlots,
   isSecondDayOpen,
@@ -11,9 +12,10 @@ import {
   syncEventDataFromAllServers,
   updateBookingStatus,
 } from "@/lib/store";
+import { getPersistenceDiagnostics } from "@/lib/persistence";
 import { getArtistById } from "@/lib/data/artists";
 import { getSlotById } from "@/lib/data/slots";
-import type { BookingStatus } from "@/lib/types";
+import type { AdminBookingInput, BookingStatus } from "@/lib/types";
 import { formatSlotLabel } from "@/lib/format";
 
 export async function fetchAdminBookings() {
@@ -84,6 +86,7 @@ export async function syncAllBookings(): Promise<{
   ok: boolean;
   count: number;
   error?: string;
+  diagnostics?: ReturnType<typeof getPersistenceDiagnostics>;
 }> {
   const authed = await isAdminAuthenticated();
   if (!authed) {
@@ -91,7 +94,50 @@ export async function syncAllBookings(): Promise<{
   }
 
   const count = await syncEventDataFromAllServers();
-  return { ok: true, count };
+  return { ok: true, count, diagnostics: getPersistenceDiagnostics() };
+}
+
+export async function fetchPersistenceStatus() {
+  const authed = await isAdminAuthenticated();
+  if (!authed) return null;
+
+  await syncEventDataFromAllServers();
+  return getPersistenceDiagnostics();
+}
+
+export async function addAdminBooking(
+  input: AdminBookingInput,
+): Promise<{ ok: boolean; error?: string; bookingId?: string }> {
+  const authed = await isAdminAuthenticated();
+  if (!authed) {
+    return { ok: false, error: "Unauthorized" };
+  }
+
+  const result = await createAdminBookingInStore(input);
+  if (!result.success) {
+    return { ok: false, error: result.error };
+  }
+
+  return { ok: true, bookingId: result.booking.id };
+}
+
+export async function fetchAdminSlotOptions() {
+  const authed = await isAdminAuthenticated();
+  if (!authed) return null;
+
+  const slots = await getSlots();
+  return slots
+    .filter((slot) => slot.status !== "booked")
+    .map((slot) => {
+      const artist = getArtistById(slot.artistId);
+      return {
+        id: slot.id,
+        artistId: slot.artistId,
+        label: formatSlotLabel(slot),
+        artistName: artist?.name ?? slot.artistId,
+      };
+    })
+    .sort((a, b) => a.label.localeCompare(b.label));
 }
 
 export async function logoutAdmin(): Promise<void> {

@@ -84,3 +84,13 @@ export interface BookingFormData {
 export type CreateBookingResult =
   | { success: true; booking: Booking }
   | { success: false; error: string };
+
+export interface AdminBookingInput {
+  artistId: string;
+  slotId: string;
+  name: string;
+  phone: string;
+  email: string;
+  placement: Placement;
+  colorPreference: ColorPreference;
+}

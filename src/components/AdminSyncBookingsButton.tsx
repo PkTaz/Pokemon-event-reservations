@@ -17,8 +17,14 @@ export function AdminSyncBookingsButton() {
         setMessage("Could not sync bookings.");
         return;
       }
+      const diag = result.diagnostics;
+      const detail = diag?.error
+        ? ` Storage error: ${diag.error}`
+        : diag?.mode === "production-blobs"
+          ? " Shared storage is active."
+          : "";
       setMessage(
-        `Shared storage updated — ${result.count} booking${result.count === 1 ? "" : "s"} visible to all servers.`,
+        `Shared storage updated — ${result.count} booking${result.count === 1 ? "" : "s"} visible.${detail}`,
       );
       router.refresh();
     });

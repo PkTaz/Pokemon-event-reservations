@@ -1,11 +1,18 @@
+import { AdminAddBookingForm } from "@/components/AdminAddBookingForm";
 import { AdminDashboard } from "@/components/AdminDashboard";
 import { AdminLoginForm } from "@/components/AdminLoginForm";
 import { AdminLogoutButton } from "@/components/AdminLogoutButton";
+import { AdminPersistenceStatus } from "@/components/AdminPersistenceStatus";
 import { AdminResetDataButton } from "@/components/AdminResetDataButton";
-import { AdminSyncBookingsButton } from "@/components/AdminSyncBookingsButton";
 import { AdminSecondDayToggle } from "@/components/AdminSecondDayToggle";
+import { AdminSyncBookingsButton } from "@/components/AdminSyncBookingsButton";
 import { Card, Container, PageHeader, BackLink } from "@/components/ui";
-import { fetchAdminBookings, fetchSecondDayStatus } from "@/lib/actions/admin";
+import {
+  fetchAdminBookings,
+  fetchAdminSlotOptions,
+  fetchPersistenceStatus,
+  fetchSecondDayStatus,
+} from "@/lib/actions/admin";
 import { isAdminAuthenticated } from "@/lib/actions/booking";
 
 export const dynamic = "force-dynamic";
@@ -29,6 +36,14 @@ export default async function AdminPage() {
 
   const bookings = await fetchAdminBookings();
   const secondDay = await fetchSecondDayStatus();
+  const openSlots = (await fetchAdminSlotOptions()) ?? [];
+  const persistence =
+    (await fetchPersistenceStatus()) ?? {
+      enabled: false,
+      loaded: false,
+      bookingCount: 0,
+      mode: "local-memory" as const,
+    };
 
   return (
     <main className="pt-6">
@@ -47,9 +62,16 @@ export default async function AdminPage() {
           <AdminLogoutButton />
         </div>
 
+        <AdminPersistenceStatus
+          diagnostics={persistence}
+          bookingCount={bookings?.length ?? 0}
+        />
+
         <AdminSecondDayToggle initiallyOpen={secondDay?.open ?? false} />
 
         <AdminSyncBookingsButton />
+
+        <AdminAddBookingForm openSlots={openSlots} />
 
         <AdminResetDataButton />
 
