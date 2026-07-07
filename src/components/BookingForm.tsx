@@ -2,7 +2,7 @@
 
 import { useRouter } from "next/navigation";
 import { useState } from "react";
-import { releaseActiveSlotHold } from "@/components/BookingHoldGate";
+import { releaseHoldAndNavigate } from "@/components/BookingBackLink";
 import { PokemonParty } from "@/components/PokemonParty";
 import { SlotHoldTimer } from "@/components/SlotHoldTimer";
 import { submitBooking } from "@/lib/actions/booking";
@@ -120,10 +120,8 @@ export function BookingForm({
               <button
                 type="button"
                 className="underline"
-                onClick={async () => {
-                  await releaseActiveSlotHold(artistId, slotId);
-                  router.push(slotsBackHref);
-                  router.refresh();
+                onClick={() => {
+                  releaseHoldAndNavigate(router, slotsBackHref, artistId, slotId);
                 }}
               >
                 Choose another battle slot
