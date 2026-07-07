@@ -8,17 +8,13 @@ import {
   migrateLegacySlotId,
 } from "./data/slots";
 import { SLOT_HOLD_MS } from "./constants";
+import { isDatabaseEnabled } from "./db/client";
+import * as db from "./db/repository";
 import {
   isValidColorPreference,
   isValidPlacement,
   validateBookingForm,
 } from "./validation";
-import {
-  loadPersistedState,
-  mergePersistedStates,
-  savePersistedState,
-  toPersistedState,
-} from "./persistence";
 import type {
   AdminBookingInput,
   Booking,
@@ -116,49 +112,37 @@ function getMemoryStore(): StoreState {
   return globalThis.__flashEventStore;
 }
 
-function setMemoryStore(store: StoreState): void {
-  globalThis.__flashEventStore = store;
-}
-
-async function hydrateStore(): Promise<StoreState> {
-  const memory = getMemoryStore();
-  const persisted = await loadPersistedState();
-
-  if (!persisted) {
-    return memory;
+async function loadStoreState(): Promise<StoreState> {
+  if (!isDatabaseEnabled()) {
+    return getMemoryStore();
   }
 
-  const merged = mergePersistedStates(
-    toPersistedState(memory),
-    persisted,
-  );
+  const [bookings, holds, secondDayOpen] = await Promise.all([
+    db.fetchAllBookings(),
+    db.fetchActiveHolds(),
+    db.isSecondDayOpenInDb(),
+  ]);
+
+  for (const booking of bookings) {
+    migrateLegacyBooking(booking);
+  }
 
   const store: StoreState = {
-    ...memory,
-    bookings: merged.bookings,
-    holds: merged.holds,
-    secondDayOpen: merged.secondDayOpen,
+    slots: [],
+    bookings,
+    holds,
+    secondDayOpen,
   };
-
   syncSlotsWithCatalog(store);
-  setMemoryStore(store);
-
-  await savePersistedState(toPersistedState(store));
   return store;
 }
 
-async function commitStore(store: StoreState): Promise<void> {
-  syncSlotsWithCatalog(store);
-  setMemoryStore(store);
-  await savePersistedState(toPersistedState(store));
-}
-
-async function withStore<T>(
+async function withMemoryStore<T>(
   fn: (store: StoreState) => T | Promise<T>,
 ): Promise<T> {
-  const store = await hydrateStore();
+  const store = getMemoryStore();
   const result = await fn(store);
-  await commitStore(store);
+  syncSlotsWithCatalog(store);
   return result;
 }
 
@@ -170,26 +154,42 @@ export function getAllArtists() {
   return ARTISTS;
 }
 
+export async function getArtistsWithAvailability() {
+  return Promise.all(
+    ARTISTS.map(async (artist) => ({
+      ...artist,
+      spotsRemaining: await getAvailableSlotCount(artist.id),
+    })),
+  );
+}
+
 export async function isSecondDayOpen(): Promise<boolean> {
-  const store = await hydrateStore();
-  return store.secondDayOpen;
+  if (isDatabaseEnabled()) {
+    return db.isSecondDayOpenInDb();
+  }
+  return getMemoryStore().secondDayOpen;
 }
 
 export async function setSecondDayOpen(open: boolean): Promise<void> {
-  await withStore((store) => {
+  if (isDatabaseEnabled()) {
+    await db.setSecondDayOpenInDb(open);
+    return;
+  }
+
+  await withMemoryStore((store) => {
     store.secondDayOpen = open;
   });
 }
 
 export async function getOpenEventDays() {
-  const store = await hydrateStore();
+  const secondDayOpen = await isSecondDayOpen();
   return EVENT_DAYS.filter(
-    (day) => !day.requiresSecondDayOpen || store.secondDayOpen,
+    (day) => !day.requiresSecondDayOpen || secondDayOpen,
   );
 }
 
 export async function getSlots(): Promise<Slot[]> {
-  const store = await hydrateStore();
+  const store = await loadStoreState();
   return store.slots;
 }
 
@@ -197,7 +197,7 @@ export async function getSlotsByArtistId(
   artistId: string,
   eventDate?: string,
 ): Promise<Slot[]> {
-  const store = await hydrateStore();
+  const store = await loadStoreState();
   return store.slots.filter(
     (slot) =>
       slot.artistId === artistId &&
@@ -211,21 +211,31 @@ export async function getAvailableSlotCount(artistId: string): Promise<number> {
 }
 
 export async function getBookingById(id: string): Promise<Booking | undefined> {
-  const store = await hydrateStore();
+  if (isDatabaseEnabled()) {
+    const booking = await db.fetchBookingById(id);
+    if (booking) {
+      migrateLegacyBooking(booking);
+    }
+    return booking;
+  }
+
+  const store = getMemoryStore();
   return store.bookings.find((booking) => booking.id === id);
 }
 
 export async function getAllBookings(): Promise<Booking[]> {
-  const store = await hydrateStore();
+  if (isDatabaseEnabled()) {
+    const bookings = await db.fetchAllBookings();
+    for (const booking of bookings) {
+      migrateLegacyBooking(booking);
+    }
+    return bookings;
+  }
+
+  const store = getMemoryStore();
   return [...store.bookings].sort(
     (a, b) => new Date(b.createdAt).getTime() - new Date(a.createdAt).getTime(),
   );
-}
-
-export async function syncEventDataFromAllServers(): Promise<number> {
-  const store = await hydrateStore();
-  await commitStore(store);
-  return store.bookings.length;
 }
 
 export async function claimSlotHold(
@@ -233,29 +243,58 @@ export async function claimSlotHold(
   artistId: string,
   slotId: string,
 ): Promise<ClaimSlotHoldResult> {
-  return withStore((store) => {
-    const slot = getSlotById(slotId, store.slots);
+  const secondDayOpen = await isSecondDayOpen();
+  const slots = await getSlots();
+  const slot = getSlotById(slotId, slots);
 
-    if (!slot || slot.artistId !== artistId) {
-      return { success: false, error: "Time slot not found for this artist." };
-    }
+  if (!slot || slot.artistId !== artistId) {
+    return { success: false, error: "Time slot not found for this artist." };
+  }
 
-    const dayConfig = EVENT_DAYS.find((day) => day.id === slot.eventDate);
-    if (dayConfig?.requiresSecondDayOpen && !store.secondDayOpen) {
+  const dayConfig = EVENT_DAYS.find((day) => day.id === slot.eventDate);
+  if (dayConfig?.requiresSecondDayOpen && !secondDayOpen) {
+    return {
+      success: false,
+      error: "This event day is not open for booking yet.",
+    };
+  }
+
+  if (slot.status === "booked") {
+    return {
+      success: false,
+      error: "This time slot was just booked. Please choose another.",
+    };
+  }
+
+  const now = Date.now();
+  const expiresAt = new Date(now + SLOT_HOLD_MS).toISOString();
+
+  if (isDatabaseEnabled()) {
+    const existingHold = await db.fetchHoldBySlotId(slotId);
+    if (
+      existingHold &&
+      existingHold.sessionId !== sessionId &&
+      isHoldActive(existingHold, now)
+    ) {
       return {
         success: false,
-        error: "This event day is not open for booking yet.",
+        error: "Someone else is booking this slot. Please choose another time.",
       };
     }
 
-    if (slot.status === "booked") {
+    if (await db.isSlotBooked(slotId)) {
       return {
         success: false,
         error: "This time slot was just booked. Please choose another.",
       };
     }
 
-    const now = Date.now();
+    await db.upsertHold({ slotId, artistId, sessionId, expiresAt });
+    await db.deleteHoldsForSessionExceptSlot(sessionId, slotId);
+    return { success: true, expiresAt };
+  }
+
+  return withMemoryStore((store) => {
     expireHolds(store, now);
 
     const existingHold = store.holds.find((hold) => hold.slotId === slotId);
@@ -275,8 +314,6 @@ export async function claimSlotHold(
       (hold) => hold.sessionId !== sessionId || hold.slotId === slotId,
     );
 
-    const expiresAt = new Date(now + SLOT_HOLD_MS).toISOString();
-
     if (existingHold?.sessionId === sessionId) {
       existingHold.expiresAt = expiresAt;
     } else {
@@ -291,7 +328,12 @@ export async function releaseSlotHold(
   sessionId: string,
   slotId: string,
 ): Promise<void> {
-  await withStore((store) => {
+  if (isDatabaseEnabled()) {
+    await db.deleteHold(sessionId, slotId);
+    return;
+  }
+
+  await withMemoryStore((store) => {
     store.holds = store.holds.filter(
       (hold) => !(hold.sessionId === sessionId && hold.slotId === slotId),
     );
@@ -323,14 +365,73 @@ export async function createBooking(
     return { success: false, error: "Artist not found." };
   }
 
-  return withStore((store) => {
-    const slot = getSlotById(data.slotId, store.slots);
+  const slots = await getSlots();
+  const slot = getSlotById(data.slotId, slots);
 
-    if (!slot || slot.artistId !== data.artistId) {
+  if (!slot || slot.artistId !== data.artistId) {
+    return { success: false, error: "Time slot not found for this artist." };
+  }
+
+  if (slot.status === "booked") {
+    return {
+      success: false,
+      error:
+        "This time slot was just booked by someone else. Please choose another slot.",
+    };
+  }
+
+  if (isDatabaseEnabled()) {
+    const hold = await db.fetchHoldForSession(sessionId, data.slotId);
+    if (!hold || !isHoldActive(hold)) {
+      return {
+        success: false,
+        error:
+          "Your reservation expired. Please go back and select your time slot again.",
+      };
+    }
+
+    const booking: Booking = {
+      id: generateId(),
+      artistId: data.artistId,
+      slotId: data.slotId,
+      name: data.name.trim(),
+      phone: data.phone.trim(),
+      email: data.email.trim(),
+      placement: data.placement,
+      colorPreference: data.colorPreference,
+      status: "Confirmed",
+      acknowledgements: {
+        confirmPackPull: data.confirmPackPull,
+        confirmArtistApproval: data.confirmArtistApproval,
+        confirmAgeAndId: data.confirmAgeAndId,
+      },
+      aiSummary: "",
+      createdAt: new Date().toISOString(),
+    };
+
+    booking.aiSummary = generateBookingSummary(booking, artist, slot);
+
+    const inserted = await db.insertBooking(booking);
+    if (!inserted) {
+      return {
+        success: false,
+        error:
+          "This time slot was just booked by someone else. Please choose another slot.",
+      };
+    }
+
+    await db.deleteHoldForSlot(data.slotId);
+    return { success: true, booking };
+  }
+
+  return withMemoryStore((store) => {
+    const memorySlot = getSlotById(data.slotId, store.slots);
+
+    if (!memorySlot || memorySlot.artistId !== data.artistId) {
       return { success: false, error: "Time slot not found for this artist." };
     }
 
-    if (slot.status === "booked") {
+    if (memorySlot.status === "booked") {
       return {
         success: false,
         error:
@@ -372,7 +473,7 @@ export async function createBooking(
       createdAt: new Date().toISOString(),
     };
 
-    booking.aiSummary = generateBookingSummary(booking, artist, slot);
+    booking.aiSummary = generateBookingSummary(booking, artist, memorySlot);
 
     store.bookings.push(booking);
     store.holds = store.holds.filter((h) => h.slotId !== data.slotId);
@@ -385,7 +486,23 @@ export async function updateBookingStatus(
   bookingId: string,
   status: BookingStatus,
 ): Promise<boolean> {
-  return withStore((store) => {
+  if (isDatabaseEnabled()) {
+    const booking = await db.fetchBookingById(bookingId);
+    if (!booking) return false;
+
+    booking.status = status;
+    const artist = getArtistById(booking.artistId);
+    const slots = await getSlots();
+    const slot = getSlotById(booking.slotId, slots);
+    const aiSummary =
+      artist && slot
+        ? generateBookingSummary(booking, artist, slot)
+        : booking.aiSummary;
+
+    return db.updateBookingStatusInDb(bookingId, status, aiSummary);
+  }
+
+  return withMemoryStore((store) => {
     const booking = store.bookings.find((b) => b.id === bookingId);
     if (!booking) return false;
 
@@ -402,7 +519,12 @@ export async function updateBookingStatus(
 }
 
 export async function resetAllEventData(): Promise<void> {
-  await withStore((store) => {
+  if (isDatabaseEnabled()) {
+    await db.resetEventDataInDb();
+    return;
+  }
+
+  await withMemoryStore((store) => {
     store.bookings = [];
     store.holds = [];
     store.secondDayOpen = false;
@@ -434,40 +556,68 @@ export async function createAdminBooking(
     return { success: false, error: "Name, phone, and email are required." };
   }
 
-  return withStore((store) => {
-    const slot = getSlotById(input.slotId, store.slots);
+  const slots = await getSlots();
+  const slot = getSlotById(input.slotId, slots);
 
-    if (!slot || slot.artistId !== input.artistId) {
-      return { success: false, error: "Time slot not found for this artist." };
-    }
+  if (!slot || slot.artistId !== input.artistId) {
+    return { success: false, error: "Time slot not found for this artist." };
+  }
 
-    if (slot.status === "booked") {
+  if (slot.status === "booked") {
+    return {
+      success: false,
+      error: "This slot is already booked. Pick another time.",
+    };
+  }
+
+  const booking: Booking = {
+    id: generateId(),
+    artistId: input.artistId,
+    slotId: input.slotId,
+    name,
+    phone,
+    email,
+    placement: input.placement,
+    colorPreference: input.colorPreference,
+    status: "Confirmed",
+    acknowledgements: {
+      confirmPackPull: true,
+      confirmArtistApproval: true,
+      confirmAgeAndId: true,
+    },
+    aiSummary: "",
+    createdAt: new Date().toISOString(),
+  };
+
+  booking.aiSummary = generateBookingSummary(booking, artist, slot);
+
+  if (isDatabaseEnabled()) {
+    const inserted = await db.insertBooking(booking);
+    if (!inserted) {
       return {
         success: false,
         error: "This slot is already booked. Pick another time.",
       };
     }
 
-    const booking: Booking = {
-      id: generateId(),
-      artistId: input.artistId,
-      slotId: input.slotId,
-      name,
-      phone,
-      email,
-      placement: input.placement,
-      colorPreference: input.colorPreference,
-      status: "Confirmed",
-      acknowledgements: {
-        confirmPackPull: true,
-        confirmArtistApproval: true,
-        confirmAgeAndId: true,
-      },
-      aiSummary: "",
-      createdAt: new Date().toISOString(),
-    };
+    await db.deleteHoldForSlot(input.slotId);
+    return { success: true, booking };
+  }
 
-    booking.aiSummary = generateBookingSummary(booking, artist, slot);
+  return withMemoryStore((store) => {
+    const memorySlot = getSlotById(input.slotId, store.slots);
+
+    if (!memorySlot || memorySlot.artistId !== input.artistId) {
+      return { success: false, error: "Time slot not found for this artist." };
+    }
+
+    if (memorySlot.status === "booked") {
+      return {
+        success: false,
+        error: "This slot is already booked. Pick another time.",
+      };
+    }
+
     store.bookings.push(booking);
     store.holds = store.holds.filter((hold) => hold.slotId !== input.slotId);
 

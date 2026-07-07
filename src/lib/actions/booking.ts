@@ -2,12 +2,6 @@
 
 import { cookies } from "next/headers";
 import {
-  getAllArtists,
-  getAvailableSlotCount,
-  getBookingById,
-  getOpenEventDays,
-  getSlots,
-  getSlotsByArtistId,
   claimSlotHold as claimSlotHoldInStore,
   createBooking,
   releaseSlotHold as releaseSlotHoldInStore,
@@ -57,38 +51,11 @@ export async function releaseSlotHold(
   await releaseSlotHoldInStore(sessionId, slotId);
 }
 
-export async function fetchArtistsWithAvailability() {
-  const artists = getAllArtists();
-  return Promise.all(
-    artists.map(async (artist) => ({
-      ...artist,
-      spotsRemaining: await getAvailableSlotCount(artist.id),
-    })),
-  );
-}
-
-export async function fetchArtistSlots(artistId: string, eventDate?: string) {
-  return getSlotsByArtistId(artistId, eventDate);
-}
-
-export async function fetchOpenEventDays() {
-  return getOpenEventDays();
-}
-
-export async function fetchSlots() {
-  return getSlots();
-}
-
 export async function submitBooking(
   formData: Partial<BookingFormData>,
 ): Promise<CreateBookingResult> {
   const sessionId = await ensureBookingSession();
   return createBooking(sessionId, formData);
-}
-
-export async function fetchBooking(bookingId: string) {
-  const booking = await getBookingById(bookingId);
-  return booking ?? null;
 }
 
 export async function loginAdmin(password: string): Promise<{ ok: boolean }> {

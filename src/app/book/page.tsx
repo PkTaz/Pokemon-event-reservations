@@ -2,13 +2,14 @@ import { notFound, redirect } from "next/navigation";
 import { BookingBackLink } from "@/components/BookingBackLink";
 import { BookingHoldGate } from "@/components/BookingHoldGate";
 import { Container, PageHeader } from "@/components/ui";
-import { fetchSlots } from "@/lib/actions/booking";
 import { getArtistById } from "@/lib/data/artists";
 import { getSlotById } from "@/lib/data/slots";
 import { formatSlotLabel } from "@/lib/format";
 import { isSignupsOpen } from "@/lib/constants";
+import { getSlots } from "@/lib/store";
 
 export const dynamic = "force-dynamic";
+export const runtime = "nodejs";
 
 interface PageProps {
   searchParams: Promise<{ artistId?: string; slotId?: string }>;
@@ -26,7 +27,7 @@ export default async function BookPage({ searchParams }: PageProps) {
   }
 
   const artist = getArtistById(artistId);
-  const slot = getSlotById(slotId, await fetchSlots());
+  const slot = getSlotById(slotId, await getSlots());
 
   if (!artist || !slot || slot.artistId !== artistId) {
     notFound();

@@ -1,21 +1,21 @@
 import { AdminAddBookingForm } from "@/components/AdminAddBookingForm";
 import { AdminDashboard } from "@/components/AdminDashboard";
+import { AdminDatabaseStatus } from "@/components/AdminDatabaseStatus";
 import { AdminLoginForm } from "@/components/AdminLoginForm";
 import { AdminLogoutButton } from "@/components/AdminLogoutButton";
-import { AdminPersistenceStatus } from "@/components/AdminPersistenceStatus";
 import { AdminResetDataButton } from "@/components/AdminResetDataButton";
 import { AdminSecondDayToggle } from "@/components/AdminSecondDayToggle";
-import { AdminSyncBookingsButton } from "@/components/AdminSyncBookingsButton";
 import { Card, Container, PageHeader, BackLink } from "@/components/ui";
 import {
   fetchAdminBookings,
   fetchAdminSlotOptions,
-  fetchPersistenceStatus,
+  fetchDatabaseStatus,
   fetchSecondDayStatus,
 } from "@/lib/actions/admin";
 import { isAdminAuthenticated } from "@/lib/actions/booking";
 
 export const dynamic = "force-dynamic";
+export const runtime = "nodejs";
 
 export default async function AdminPage() {
   const authed = await isAdminAuthenticated();
@@ -37,12 +37,12 @@ export default async function AdminPage() {
   const bookings = await fetchAdminBookings();
   const secondDay = await fetchSecondDayStatus();
   const openSlots = (await fetchAdminSlotOptions()) ?? [];
-  const persistence =
-    (await fetchPersistenceStatus()) ?? {
+  const database =
+    (await fetchDatabaseStatus()) ?? {
       enabled: false,
-      loaded: false,
+      connected: false,
       bookingCount: 0,
-      mode: "local-memory" as const,
+      error: "Unable to read database status",
     };
 
   return (
@@ -62,14 +62,12 @@ export default async function AdminPage() {
           <AdminLogoutButton />
         </div>
 
-        <AdminPersistenceStatus
-          diagnostics={persistence}
+        <AdminDatabaseStatus
+          diagnostics={database}
           bookingCount={bookings?.length ?? 0}
         />
 
         <AdminSecondDayToggle initiallyOpen={secondDay?.open ?? false} />
-
-        <AdminSyncBookingsButton />
 
         <AdminAddBookingForm openSlots={openSlots} />
 

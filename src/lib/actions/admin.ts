@@ -2,6 +2,7 @@
 
 import { cookies } from "next/headers";
 import { isAdminAuthenticated } from "@/lib/actions/booking";
+import { getDatabaseDiagnostics } from "@/lib/db/client";
 import {
   createAdminBooking as createAdminBookingInStore,
   getAllBookings,
@@ -9,10 +10,8 @@ import {
   isSecondDayOpen,
   resetAllEventData as resetAllEventDataInStore,
   setSecondDayOpen,
-  syncEventDataFromAllServers,
   updateBookingStatus,
 } from "@/lib/store";
-import { getPersistenceDiagnostics } from "@/lib/persistence";
 import { getArtistById } from "@/lib/data/artists";
 import { getSlotById } from "@/lib/data/slots";
 import type { AdminBookingInput, BookingStatus } from "@/lib/types";
@@ -82,27 +81,11 @@ export async function resetAllEventData(): Promise<{
   return { ok: true };
 }
 
-export async function syncAllBookings(): Promise<{
-  ok: boolean;
-  count: number;
-  error?: string;
-  diagnostics?: ReturnType<typeof getPersistenceDiagnostics>;
-}> {
-  const authed = await isAdminAuthenticated();
-  if (!authed) {
-    return { ok: false, count: 0, error: "Unauthorized" };
-  }
-
-  const count = await syncEventDataFromAllServers();
-  return { ok: true, count, diagnostics: getPersistenceDiagnostics() };
-}
-
-export async function fetchPersistenceStatus() {
+export async function fetchDatabaseStatus() {
   const authed = await isAdminAuthenticated();
   if (!authed) return null;
 
-  await syncEventDataFromAllServers();
-  return getPersistenceDiagnostics();
+  return getDatabaseDiagnostics();
 }
 
 export async function addAdminBooking(

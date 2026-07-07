@@ -1,7 +1,6 @@
 import { notFound } from "next/navigation";
 import { ConfirmationView } from "@/components/ConfirmationView";
 import { Container, PageHeader, PokeballIcon } from "@/components/ui";
-import { fetchBooking, fetchSlots } from "@/lib/actions/booking";
 import { EVENT_REMINDERS } from "@/lib/constants";
 import { getArtistById } from "@/lib/data/artists";
 import { getSlotById } from "@/lib/data/slots";
@@ -11,8 +10,10 @@ import {
   formatPlacement,
   formatTimeRange,
 } from "@/lib/format";
+import { getBookingById, getSlots } from "@/lib/store";
 
 export const dynamic = "force-dynamic";
+export const runtime = "nodejs";
 
 interface PageProps {
   params: Promise<{ bookingId: string }>;
@@ -20,14 +21,14 @@ interface PageProps {
 
 export default async function ConfirmationPage({ params }: PageProps) {
   const { bookingId } = await params;
-  const booking = await fetchBooking(bookingId);
+  const booking = await getBookingById(bookingId);
 
   if (!booking) {
     notFound();
   }
 
   const artist = getArtistById(booking.artistId);
-  const slot = getSlotById(booking.slotId, await fetchSlots());
+  const slot = getSlotById(booking.slotId, await getSlots());
 
   if (!artist || !slot) {
     notFound();

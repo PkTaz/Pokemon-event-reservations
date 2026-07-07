@@ -1,0 +1,22 @@
+services:
+  - type: web
+    name: pokemon-event
+    runtime: node
+    plan: starter
+    buildCommand: npm ci && npm run build
+    startCommand: npm start
+    envVars:
+      - key: NODE_VERSION
+        value: "20"
+      - key: ADMIN_PASSWORD
+        sync: false
+      - key: DATABASE_URL
+        fromDatabase:
+          name: pokemon-event-db
+          property: connectionString
+
+databases:
+  - name: pokemon-event-db
+    plan: basic-256mb
+    databaseName: pokemon_event
+    user: pokemon_event

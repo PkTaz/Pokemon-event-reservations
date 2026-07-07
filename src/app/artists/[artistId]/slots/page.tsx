@@ -4,12 +4,16 @@ import { PokemonParty } from "@/components/PokemonParty";
 import { SlotPicker } from "@/components/SlotPicker";
 import { TrainerPartyNote } from "@/components/TrainerPartyNote";
 import { BackLink, Container, PageHeader } from "@/components/ui";
-import { fetchArtistSlots, fetchOpenEventDays } from "@/lib/actions/booking";
-import { EVENT_DAY_1_ID } from "@/lib/data/event-days";
 import { getArtistById } from "@/lib/data/artists";
+import { EVENT_DAY_1_ID } from "@/lib/data/event-days";
 import { isSignupsOpen } from "@/lib/constants";
+import {
+  getOpenEventDays,
+  getSlotsByArtistId,
+} from "@/lib/store";
 
 export const dynamic = "force-dynamic";
+export const runtime = "nodejs";
 
 interface PageProps {
   params: Promise<{ artistId: string }>;
@@ -29,7 +33,7 @@ export default async function ArtistSlotsPage({ params, searchParams }: PageProp
     notFound();
   }
 
-  const openDays = await fetchOpenEventDays();
+  const openDays = await getOpenEventDays();
   const selectedDayId =
     openDays.find((d) => d.id === day)?.id ?? openDays[0]?.id ?? EVENT_DAY_1_ID;
 
@@ -38,7 +42,7 @@ export default async function ArtistSlotsPage({ params, searchParams }: PageProp
   }
 
   const selectedDay = openDays.find((d) => d.id === selectedDayId);
-  const slots = await fetchArtistSlots(artistId, selectedDayId);
+  const slots = await getSlotsByArtistId(artistId, selectedDayId);
 
   return (
     <main className="pt-6">

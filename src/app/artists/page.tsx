@@ -2,17 +2,18 @@ import { redirect } from "next/navigation";
 import { ArtistCard } from "@/components/ArtistCard";
 import { TrainerPartyNote } from "@/components/TrainerPartyNote";
 import { BackLink, Container, PageHeader } from "@/components/ui";
-import { fetchArtistsWithAvailability } from "@/lib/actions/booking";
+import { getArtistsWithAvailability } from "@/lib/store";
 import { isSignupsOpen } from "@/lib/constants";
 
 export const dynamic = "force-dynamic";
+export const runtime = "nodejs";
 
 export default async function ArtistsPage() {
   if (!isSignupsOpen()) {
     redirect("/");
   }
 
-  const artists = await fetchArtistsWithAvailability();
+  const artists = await getArtistsWithAvailability();
 
   return (
     <main className="pt-6">
