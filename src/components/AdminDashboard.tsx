@@ -20,7 +20,6 @@ export interface AdminBookingRow {
   placement: Placement;
   colorPreference: ColorPreference;
   status: BookingStatus;
-  aiSummary: string;
 }
 
 interface AdminDashboardProps {
@@ -59,7 +58,6 @@ export function AdminDashboard({ bookings }: AdminDashboardProps) {
             <th className="px-3 py-3">Placement</th>
             <th className="px-3 py-3">Color</th>
             <th className="px-3 py-3">Status</th>
-            <th className="px-3 py-3">AI Summary</th>
           </tr>
         </thead>
         <tbody>
@@ -94,9 +92,6 @@ export function AdminDashboard({ bookings }: AdminDashboardProps) {
                     </option>
                   ))}
                 </select>
-              </td>
-              <td className="max-w-xs px-3 py-3 text-xs text-zinc-600">
-                {booking.aiSummary}
               </td>
             </tr>
           ))}
