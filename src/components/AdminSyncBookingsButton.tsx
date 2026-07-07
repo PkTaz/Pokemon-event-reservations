@@ -23,9 +23,15 @@ export function AdminSyncBookingsButton() {
         : diag?.mode === "production-blobs"
           ? " Shared storage is active."
           : "";
-      setMessage(
-        `Shared storage updated — ${result.count} booking${result.count === 1 ? "" : "s"} visible.${detail}`,
-      );
+      if (result.count === 0) {
+        setMessage(
+          `Shared storage is working, but 0 bookings are saved there.${detail} Bookings made before the storage fix were not written to shared storage and cannot be synced back — use “Re-add a lost booking” below if you have their confirmation details.`,
+        );
+      } else {
+        setMessage(
+          `Shared storage updated — ${result.count} booking${result.count === 1 ? "" : "s"} visible.${detail}`,
+        );
+      }
       router.refresh();
     });
   }
