@@ -6,6 +6,7 @@ import {
   getAvailableSlotCount,
   getBookingById,
   getOpenEventDays,
+  getSlots,
   getSlotsByArtistId,
   claimSlotHold as claimSlotHoldInStore,
   createBooking,
@@ -53,14 +54,17 @@ export async function releaseSlotHold(
 ): Promise<void> {
   const sessionId = await readBookingSessionId();
   if (!sessionId) return;
-  releaseSlotHoldInStore(sessionId, slotId);
+  await releaseSlotHoldInStore(sessionId, slotId);
 }
 
 export async function fetchArtistsWithAvailability() {
-  return getAllArtists().map((artist) => ({
-    ...artist,
-    spotsRemaining: getAvailableSlotCount(artist.id),
-  }));
+  const artists = getAllArtists();
+  return Promise.all(
+    artists.map(async (artist) => ({
+      ...artist,
+      spotsRemaining: await getAvailableSlotCount(artist.id),
+    })),
+  );
 }
 
 export async function fetchArtistSlots(artistId: string, eventDate?: string) {
@@ -71,6 +75,10 @@ export async function fetchOpenEventDays() {
   return getOpenEventDays();
 }
 
+export async function fetchSlots() {
+  return getSlots();
+}
+
 export async function submitBooking(
   formData: Partial<BookingFormData>,
 ): Promise<CreateBookingResult> {
@@ -79,7 +87,8 @@ export async function submitBooking(
 }
 
 export async function fetchBooking(bookingId: string) {
-  return getBookingById(bookingId) ?? null;
+  const booking = await getBookingById(bookingId);
+  return booking ?? null;
 }
 
 export async function loginAdmin(password: string): Promise<{ ok: boolean }> {

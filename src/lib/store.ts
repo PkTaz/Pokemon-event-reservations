@@ -13,6 +13,12 @@ import {
   isValidPlacement,
   validateBookingForm,
 } from "./validation";
+import {
+  loadPersistedState,
+  mergePersistedStates,
+  savePersistedState,
+  toPersistedState,
+} from "./persistence";
 import type {
   Booking,
   BookingFormData,
@@ -23,10 +29,6 @@ import type {
   SlotHold,
 } from "./types";
 
-/**
- * In-memory store — swap this module for Supabase/Postgres later.
- * Uses a global singleton so dev hot-reload keeps state within a process.
- */
 interface StoreState {
   slots: Slot[];
   bookings: Booking[];
@@ -39,7 +41,7 @@ declare global {
   var __flashEventStore: StoreState | undefined;
 }
 
-function createStore(): StoreState {
+function createEmptyState(): StoreState {
   return {
     slots: buildSlotCatalog(false).map((slot) => ({ ...slot })),
     bookings: [],
@@ -48,7 +50,6 @@ function createStore(): StoreState {
   };
 }
 
-/** Old artist ids from before renames — keeps dev hot-reload state consistent. */
 const LEGACY_ARTIST_IDS: Record<string, string> = {
   jake: "jeremy",
   sam: "keagan",
@@ -79,7 +80,6 @@ function isHoldActive(hold: SlotHold, now = Date.now()): boolean {
   return new Date(hold.expiresAt).getTime() > now;
 }
 
-/** Rebuild slot statuses from confirmed bookings and active holds. */
 function syncSlotsWithCatalog(store: StoreState): void {
   for (const booking of store.bookings) {
     migrateLegacyBooking(booking);
@@ -101,9 +101,9 @@ function syncSlotsWithCatalog(store: StoreState): void {
   });
 }
 
-function getStore(): StoreState {
+function getMemoryStore(): StoreState {
   if (!globalThis.__flashEventStore) {
-    globalThis.__flashEventStore = createStore();
+    globalThis.__flashEventStore = createEmptyState();
   }
   if (!globalThis.__flashEventStore.holds) {
     globalThis.__flashEventStore.holds = [];
@@ -115,6 +115,52 @@ function getStore(): StoreState {
   return globalThis.__flashEventStore;
 }
 
+function setMemoryStore(store: StoreState): void {
+  globalThis.__flashEventStore = store;
+}
+
+async function hydrateStore(): Promise<StoreState> {
+  const memory = getMemoryStore();
+  const persisted = await loadPersistedState();
+
+  if (!persisted) {
+    return memory;
+  }
+
+  const merged = mergePersistedStates(
+    toPersistedState(memory),
+    persisted,
+  );
+
+  const store: StoreState = {
+    ...memory,
+    bookings: merged.bookings,
+    holds: merged.holds,
+    secondDayOpen: merged.secondDayOpen,
+  };
+
+  syncSlotsWithCatalog(store);
+  setMemoryStore(store);
+
+  await savePersistedState(toPersistedState(store));
+  return store;
+}
+
+async function commitStore(store: StoreState): Promise<void> {
+  syncSlotsWithCatalog(store);
+  setMemoryStore(store);
+  await savePersistedState(toPersistedState(store));
+}
+
+async function withStore<T>(
+  fn: (store: StoreState) => T | Promise<T>,
+): Promise<T> {
+  const store = await hydrateStore();
+  const result = await fn(store);
+  await commitStore(store);
+  return result;
+}
+
 function generateId(): string {
   return `bk_${Date.now()}_${Math.random().toString(36).slice(2, 9)}`;
 }
@@ -123,133 +169,138 @@ export function getAllArtists() {
   return ARTISTS;
 }
 
-export function isSecondDayOpen(): boolean {
-  return getStore().secondDayOpen;
+export async function isSecondDayOpen(): Promise<boolean> {
+  const store = await hydrateStore();
+  return store.secondDayOpen;
 }
 
-export function setSecondDayOpen(open: boolean): void {
-  const store = getStore();
-  store.secondDayOpen = open;
-  syncSlotsWithCatalog(store);
+export async function setSecondDayOpen(open: boolean): Promise<void> {
+  await withStore((store) => {
+    store.secondDayOpen = open;
+  });
 }
 
-export function getOpenEventDays() {
+export async function getOpenEventDays() {
+  const store = await hydrateStore();
   return EVENT_DAYS.filter(
-    (day) => !day.requiresSecondDayOpen || getStore().secondDayOpen,
+    (day) => !day.requiresSecondDayOpen || store.secondDayOpen,
   );
 }
 
-export function getSlots(): Slot[] {
-  return getStore().slots;
+export async function getSlots(): Promise<Slot[]> {
+  const store = await hydrateStore();
+  return store.slots;
 }
 
-export function getSlotsByArtistId(
+export async function getSlotsByArtistId(
   artistId: string,
   eventDate?: string,
-): Slot[] {
-  return getStore().slots.filter(
+): Promise<Slot[]> {
+  const store = await hydrateStore();
+  return store.slots.filter(
     (slot) =>
       slot.artistId === artistId &&
       (eventDate ? slot.eventDate === eventDate : true),
   );
 }
 
-export function getAvailableSlotCount(artistId: string): number {
-  return getSlotsByArtistId(artistId).filter((s) => s.status === "available")
-    .length;
+export async function getAvailableSlotCount(artistId: string): Promise<number> {
+  const slots = await getSlotsByArtistId(artistId);
+  return slots.filter((s) => s.status === "available").length;
 }
 
-export function getBookingById(id: string): Booking | undefined {
-  return getStore().bookings.find((booking) => booking.id === id);
+export async function getBookingById(id: string): Promise<Booking | undefined> {
+  const store = await hydrateStore();
+  return store.bookings.find((booking) => booking.id === id);
 }
 
-export function getAllBookings(): Booking[] {
-  return [...getStore().bookings].sort(
+export async function getAllBookings(): Promise<Booking[]> {
+  const store = await hydrateStore();
+  return [...store.bookings].sort(
     (a, b) => new Date(b.createdAt).getTime() - new Date(a.createdAt).getTime(),
   );
 }
 
-export function getActiveHoldForSession(
-  sessionId: string,
-  slotId: string,
-): SlotHold | undefined {
-  const store = getStore();
-  return store.holds.find(
-    (hold) =>
-      hold.sessionId === sessionId &&
-      hold.slotId === slotId &&
-      isHoldActive(hold),
-  );
+export async function syncEventDataFromAllServers(): Promise<number> {
+  const store = await hydrateStore();
+  await commitStore(store);
+  return store.bookings.length;
 }
 
-export function claimSlotHold(
+export async function claimSlotHold(
   sessionId: string,
   artistId: string,
   slotId: string,
-): ClaimSlotHoldResult {
-  const store = getStore();
-  const slot = getSlotById(slotId, store.slots);
+): Promise<ClaimSlotHoldResult> {
+  return withStore((store) => {
+    const slot = getSlotById(slotId, store.slots);
 
-  if (!slot || slot.artistId !== artistId) {
-    return { success: false, error: "Time slot not found for this artist." };
-  }
+    if (!slot || slot.artistId !== artistId) {
+      return { success: false, error: "Time slot not found for this artist." };
+    }
 
-  const dayConfig = EVENT_DAYS.find((day) => day.id === slot.eventDate);
-  if (dayConfig?.requiresSecondDayOpen && !store.secondDayOpen) {
-    return { success: false, error: "This event day is not open for booking yet." };
-  }
+    const dayConfig = EVENT_DAYS.find((day) => day.id === slot.eventDate);
+    if (dayConfig?.requiresSecondDayOpen && !store.secondDayOpen) {
+      return {
+        success: false,
+        error: "This event day is not open for booking yet.",
+      };
+    }
 
-  if (slot.status === "booked") {
-    return {
-      success: false,
-      error: "This time slot was just booked. Please choose another.",
-    };
-  }
+    if (slot.status === "booked") {
+      return {
+        success: false,
+        error: "This time slot was just booked. Please choose another.",
+      };
+    }
 
-  const now = Date.now();
-  expireHolds(store, now);
+    const now = Date.now();
+    expireHolds(store, now);
 
-  const existingHold = store.holds.find((hold) => hold.slotId === slotId);
+    const existingHold = store.holds.find((hold) => hold.slotId === slotId);
 
-  if (
-    existingHold &&
-    existingHold.sessionId !== sessionId &&
-    isHoldActive(existingHold, now)
-  ) {
-    return {
-      success: false,
-      error: "Someone else is booking this slot. Please choose another time.",
-    };
-  }
+    if (
+      existingHold &&
+      existingHold.sessionId !== sessionId &&
+      isHoldActive(existingHold, now)
+    ) {
+      return {
+        success: false,
+        error: "Someone else is booking this slot. Please choose another time.",
+      };
+    }
 
-  store.holds = store.holds.filter(
-    (hold) => hold.sessionId !== sessionId || hold.slotId === slotId,
-  );
+    store.holds = store.holds.filter(
+      (hold) => hold.sessionId !== sessionId || hold.slotId === slotId,
+    );
 
-  const expiresAt = new Date(now + SLOT_HOLD_MS).toISOString();
+    const expiresAt = new Date(now + SLOT_HOLD_MS).toISOString();
 
-  if (existingHold?.sessionId === sessionId) {
-    existingHold.expiresAt = expiresAt;
-  } else {
-    store.holds.push({ slotId, artistId, sessionId, expiresAt });
-  }
+    if (existingHold?.sessionId === sessionId) {
+      existingHold.expiresAt = expiresAt;
+    } else {
+      store.holds.push({ slotId, artistId, sessionId, expiresAt });
+    }
 
-  syncSlotsWithCatalog(store);
-  return { success: true, expiresAt };
+    return { success: true, expiresAt };
+  });
 }
 
-export function releaseSlotHold(sessionId: string, slotId: string): void {
-  const store = getStore();
-  store.holds = store.holds.filter(
-    (hold) => !(hold.sessionId === sessionId && hold.slotId === slotId),
-  );
-  syncSlotsWithCatalog(store);
+export async function releaseSlotHold(
+  sessionId: string,
+  slotId: string,
+): Promise<void> {
+  await withStore((store) => {
+    store.holds = store.holds.filter(
+      (hold) => !(hold.sessionId === sessionId && hold.slotId === slotId),
+    );
+  });
 }
 
-export function createBooking(
+export async function createBooking(
   sessionId: string,
   formData: Partial<BookingFormData>,
-): CreateBookingResult {
+): Promise<CreateBookingResult> {
   const errors = validateBookingForm(formData);
   if (Object.keys(errors).length > 0) {
     const firstError = Object.values(errors)[0] ?? "Invalid booking data.";
@@ -271,82 +322,88 @@ export function createBooking(
     return { success: false, error: "Artist not found." };
   }
 
-  const store = getStore();
-  const slot = getSlotById(data.slotId, store.slots);
+  return withStore((store) => {
+    const slot = getSlotById(data.slotId, store.slots);
 
-  if (!slot || slot.artistId !== data.artistId) {
-    return { success: false, error: "Time slot not found for this artist." };
-  }
+    if (!slot || slot.artistId !== data.artistId) {
+      return { success: false, error: "Time slot not found for this artist." };
+    }
 
-  if (slot.status === "booked") {
-    return {
-      success: false,
-      error:
-        "This time slot was just booked by someone else. Please choose another slot.",
+    if (slot.status === "booked") {
+      return {
+        success: false,
+        error:
+          "This time slot was just booked by someone else. Please choose another slot.",
+      };
+    }
+
+    const hold = store.holds.find(
+      (item) =>
+        item.sessionId === sessionId &&
+        item.slotId === data.slotId &&
+        isHoldActive(item),
+    );
+
+    if (!hold) {
+      return {
+        success: false,
+        error:
+          "Your reservation expired. Please go back and select your time slot again.",
+      };
+    }
+
+    const booking: Booking = {
+      id: generateId(),
+      artistId: data.artistId,
+      slotId: data.slotId,
+      name: data.name.trim(),
+      phone: data.phone.trim(),
+      email: data.email.trim(),
+      placement: data.placement,
+      colorPreference: data.colorPreference,
+      status: "Confirmed",
+      acknowledgements: {
+        confirmPackPull: data.confirmPackPull,
+        confirmArtistApproval: data.confirmArtistApproval,
+        confirmAgeAndId: data.confirmAgeAndId,
+      },
+      aiSummary: "",
+      createdAt: new Date().toISOString(),
     };
-  }
 
-  const hold = getActiveHoldForSession(sessionId, data.slotId);
-  if (!hold) {
-    return {
-      success: false,
-      error:
-        "Your reservation expired. Please go back and select your time slot again.",
-    };
-  }
+    booking.aiSummary = generateBookingSummary(booking, artist, slot);
 
-  const booking: Booking = {
-    id: generateId(),
-    artistId: data.artistId,
-    slotId: data.slotId,
-    name: data.name.trim(),
-    phone: data.phone.trim(),
-    email: data.email.trim(),
-    placement: data.placement,
-    colorPreference: data.colorPreference,
-    status: "Confirmed",
-    acknowledgements: {
-      confirmPackPull: data.confirmPackPull,
-      confirmArtistApproval: data.confirmArtistApproval,
-      confirmAgeAndId: data.confirmAgeAndId,
-    },
-    aiSummary: "",
-    createdAt: new Date().toISOString(),
-  };
+    store.bookings.push(booking);
+    store.holds = store.holds.filter((h) => h.slotId !== data.slotId);
 
-  booking.aiSummary = generateBookingSummary(booking, artist, slot);
-
-  store.bookings.push(booking);
-  store.holds = store.holds.filter((h) => h.slotId !== data.slotId);
-  syncSlotsWithCatalog(store);
-
-  return { success: true, booking };
+    return { success: true, booking };
+  });
 }
 
-export function updateBookingStatus(
+export async function updateBookingStatus(
   bookingId: string,
   status: BookingStatus,
-): boolean {
-  const store = getStore();
-  const booking = store.bookings.find((b) => b.id === bookingId);
-  if (!booking) return false;
+): Promise<boolean> {
+  return withStore((store) => {
+    const booking = store.bookings.find((b) => b.id === bookingId);
+    if (!booking) return false;
 
-  booking.status = status;
+    booking.status = status;
 
-  const artist = getArtistById(booking.artistId);
-  const slot = getSlotById(booking.slotId, store.slots);
-  if (artist && slot) {
-    booking.aiSummary = generateBookingSummary(booking, artist, slot);
-  }
+    const artist = getArtistById(booking.artistId);
+    const slot = getSlotById(booking.slotId, store.slots);
+    if (artist && slot) {
+      booking.aiSummary = generateBookingSummary(booking, artist, slot);
+    }
 
-  return true;
+    return true;
+  });
 }
 
-/** Wipe all bookings, holds, and reset Day 2 — fresh slate for go-live. */
-export function resetAllEventData(): void {
-  const store = getStore();
-  store.bookings = [];
-  store.holds = [];
-  store.secondDayOpen = false;
-  syncSlotsWithCatalog(store);
+export async function resetAllEventData(): Promise<void> {
+  await withStore((store) => {
+    store.bookings = [];
+    store.holds = [];
+    store.secondDayOpen = false;
+  });
 }

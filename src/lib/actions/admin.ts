@@ -8,6 +8,7 @@ import {
   isSecondDayOpen,
   resetAllEventData as resetAllEventDataInStore,
   setSecondDayOpen,
+  syncEventDataFromAllServers,
   updateBookingStatus,
 } from "@/lib/store";
 import { getArtistById } from "@/lib/data/artists";
@@ -19,8 +20,9 @@ export async function fetchAdminBookings() {
   const authed = await isAdminAuthenticated();
   if (!authed) return null;
 
-  const slots = getSlots();
-  return getAllBookings().map((booking) => {
+  const slots = await getSlots();
+  const bookings = await getAllBookings();
+  return bookings.map((booking) => {
     const artist = getArtistById(booking.artistId);
     const slot = getSlotById(booking.slotId, slots);
     return {
@@ -34,7 +36,7 @@ export async function fetchAdminBookings() {
 export async function fetchSecondDayStatus() {
   const authed = await isAdminAuthenticated();
   if (!authed) return null;
-  return { open: isSecondDayOpen() };
+  return { open: await isSecondDayOpen() };
 }
 
 export async function toggleSecondDayOpen(): Promise<{
@@ -47,8 +49,8 @@ export async function toggleSecondDayOpen(): Promise<{
     return { ok: false, open: false, error: "Unauthorized" };
   }
 
-  const next = !isSecondDayOpen();
-  setSecondDayOpen(next);
+  const next = !(await isSecondDayOpen());
+  await setSecondDayOpen(next);
   return { ok: true, open: next };
 }
 
@@ -61,7 +63,7 @@ export async function changeBookingStatus(
     return { ok: false, error: "Unauthorized" };
   }
 
-  const updated = updateBookingStatus(bookingId, status);
+  const updated = await updateBookingStatus(bookingId, status);
   return updated ? { ok: true } : { ok: false, error: "Booking not found" };
 }
 
@@ -74,8 +76,22 @@ export async function resetAllEventData(): Promise<{
     return { ok: false, error: "Unauthorized" };
   }
 
-  resetAllEventDataInStore();
+  await resetAllEventDataInStore();
   return { ok: true };
+}
+
+export async function syncAllBookings(): Promise<{
+  ok: boolean;
+  count: number;
+  error?: string;
+}> {
+  const authed = await isAdminAuthenticated();
+  if (!authed) {
+    return { ok: false, count: 0, error: "Unauthorized" };
+  }
+
+  const count = await syncEventDataFromAllServers();
+  return { ok: true, count };
 }
 
 export async function logoutAdmin(): Promise<void> {

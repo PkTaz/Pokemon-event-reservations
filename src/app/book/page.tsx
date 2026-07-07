@@ -2,9 +2,9 @@ import { notFound, redirect } from "next/navigation";
 import { BookingBackLink } from "@/components/BookingBackLink";
 import { BookingHoldGate } from "@/components/BookingHoldGate";
 import { Container, PageHeader } from "@/components/ui";
+import { fetchSlots } from "@/lib/actions/booking";
 import { getArtistById } from "@/lib/data/artists";
 import { getSlotById } from "@/lib/data/slots";
-import { getSlots } from "@/lib/store";
 import { formatSlotLabel } from "@/lib/format";
 import { isSignupsOpen } from "@/lib/constants";
 
@@ -26,7 +26,7 @@ export default async function BookPage({ searchParams }: PageProps) {
   }
 
   const artist = getArtistById(artistId);
-  const slot = getSlotById(slotId, getSlots());
+  const slot = getSlotById(slotId, await fetchSlots());
 
   if (!artist || !slot || slot.artistId !== artistId) {
     notFound();
