@@ -1,8 +1,8 @@
 "use client";
 
 import { useRouter } from "next/navigation";
-import { useTransition } from "react";
-import { changeBookingStatus } from "@/lib/actions/admin";
+import { useState, useTransition } from "react";
+import { changeBookingStatus, deleteAdminBooking } from "@/lib/actions/admin";
 import { BOOKING_STATUS_OPTIONS } from "@/lib/constants";
 import {
   formatColorPreference,
@@ -29,10 +29,29 @@ interface AdminDashboardProps {
 export function AdminDashboard({ bookings }: AdminDashboardProps) {
   const router = useRouter();
   const [isPending, startTransition] = useTransition();
+  const [deletingId, setDeletingId] = useState<string | null>(null);
 
   function handleStatusChange(bookingId: string, status: BookingStatus) {
     startTransition(async () => {
       await changeBookingStatus(bookingId, status);
+      router.refresh();
+    });
+  }
+
+  function handleDelete(booking: AdminBookingRow) {
+    const confirmed = window.confirm(
+      `Delete booking for ${booking.name} (${booking.timeLabel} with ${booking.artistName})?\n\nThis frees the slot for others to book.`,
+    );
+    if (!confirmed) return;
+
+    setDeletingId(booking.id);
+    startTransition(async () => {
+      const result = await deleteAdminBooking(booking.id);
+      setDeletingId(null);
+      if (!result.ok) {
+        window.alert(result.error ?? "Could not delete booking.");
+        return;
+      }
       router.refresh();
     });
   }
@@ -58,6 +77,7 @@ export function AdminDashboard({ bookings }: AdminDashboardProps) {
             <th className="px-3 py-3">Placement</th>
             <th className="px-3 py-3">Color</th>
             <th className="px-3 py-3">Status</th>
+            <th className="px-3 py-3">Delete</th>
           </tr>
         </thead>
         <tbody>
@@ -92,6 +112,16 @@ export function AdminDashboard({ bookings }: AdminDashboardProps) {
                     </option>
                   ))}
                 </select>
+              </td>
+              <td className="px-3 py-3">
+                <button
+                  type="button"
+                  disabled={isPending || deletingId === booking.id}
+                  onClick={() => handleDelete(booking)}
+                  className="rounded border-2 border-poke-red bg-red-50 px-2 py-1 text-xs font-black text-poke-red transition hover:bg-red-100 disabled:opacity-60"
+                >
+                  {deletingId === booking.id ? "…" : "Delete"}
+                </button>
               </td>
             </tr>
           ))}

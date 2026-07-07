@@ -219,3 +219,17 @@ export async function isSlotBooked(slotId: string): Promise<boolean> {
   );
   return Boolean(row);
 }
+
+export async function deleteBookingInDb(bookingId: string): Promise<boolean> {
+  const rows = await query<{ slot_id: string }>(
+    "DELETE FROM bookings WHERE id = $1 RETURNING slot_id",
+    [bookingId],
+  );
+
+  if (rows.length === 0) {
+    return false;
+  }
+
+  await deleteHoldForSlot(rows[0]!.slot_id);
+  return true;
+}

@@ -518,6 +518,22 @@ export async function updateBookingStatus(
   });
 }
 
+export async function deleteBooking(bookingId: string): Promise<boolean> {
+  if (isDatabaseEnabled()) {
+    return db.deleteBookingInDb(bookingId);
+  }
+
+  return withMemoryStore((store) => {
+    const index = store.bookings.findIndex((b) => b.id === bookingId);
+    if (index === -1) return false;
+
+    const slotId = store.bookings[index]!.slotId;
+    store.bookings.splice(index, 1);
+    store.holds = store.holds.filter((hold) => hold.slotId !== slotId);
+    return true;
+  });
+}
+
 export async function resetAllEventData(): Promise<void> {
   if (isDatabaseEnabled()) {
     await db.resetEventDataInDb();

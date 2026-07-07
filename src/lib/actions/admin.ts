@@ -11,6 +11,7 @@ import {
   resetAllEventData as resetAllEventDataInStore,
   setSecondDayOpen,
   updateBookingStatus,
+  deleteBooking as deleteBookingInStore,
 } from "@/lib/store";
 import { getArtistById } from "@/lib/data/artists";
 import { getSlotById } from "@/lib/data/slots";
@@ -66,6 +67,18 @@ export async function changeBookingStatus(
 
   const updated = await updateBookingStatus(bookingId, status);
   return updated ? { ok: true } : { ok: false, error: "Booking not found" };
+}
+
+export async function deleteAdminBooking(
+  bookingId: string,
+): Promise<{ ok: boolean; error?: string }> {
+  const authed = await isAdminAuthenticated();
+  if (!authed) {
+    return { ok: false, error: "Unauthorized" };
+  }
+
+  const deleted = await deleteBookingInStore(bookingId);
+  return deleted ? { ok: true } : { ok: false, error: "Booking not found" };
 }
 
 export async function resetAllEventData(): Promise<{
